@@ -1,0 +1,124 @@
+// ClearCut — The Self-Resolving Finance Controller
+// Razorpay AI Buildathon — Track 04
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source data (merchant's books + Razorpay + bank)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model InternalOrder {
+  id             String   @id @default(cuid())
+  orderId        String   @unique
+  merchantId     String
+  customerName   String
+  amount         Float
+  currency       String   @default("INR")
+  paymentMethod  String
+  status         String   @default("captured")
+  createdAt      DateTime @default(now())
+  refundAmount   Float    @default(0)
+  routeSplitJson String?  // JSON: { platformFee, vendorAmount }
+  notes          String   @default("")
+  seededAt       DateTime @default(now())
+}
+
+model RazorpaySettlement {
+  id              String   @id @default(cuid())
+  settlementId    String   @unique
+  orderId         String
+  amount          Float
+  feeAmount       Float    @default(0)
+  refundAmount    Float    @default(0)
+  settlementStatus String  @default("settled")
+  settlementDate  DateTime
+  utr             String
+  seededAt        DateTime @default(now())
+}
+
+model BankCredit {
+  id              String   @id @default(cuid())
+  txnDate         DateTime
+  narration       String
+  amount          Float
+  referenceNumber String?
+  status          String   @default("credit")
+  seededAt        DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline output
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PipelineRun {
+  id              String   @id @default(cuid())
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  status          String   @default("running") // running | completed | failed
+  totalRecords    Int      @default(0)
+  matchedCount    Int      @default(0)
+  exceptionCount  Int      @default(0)
+  durationMs      Int      @default(0)
+  stage1Count     Int      @default(0)
+  stage2Count     Int      @default(0)
+  stage3Count     Int      @default(0)
+  stage4Count     Int      @default(0)
+  matches         MatchedRecord[]
+  exceptions      ExceptionRecord[]
+  auditEntries    AuditEntry[]
+}
+
+model MatchedRecord {
+  id              String   @id @default(cuid())
+  run             PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId           String
+  orderId         String
+  settlementId    String?
+  bankRef         String?
+  orderAmount     Float
+  bankAmount      Float
+  matchType       String   // DETERMINISTIC_1_TO_1 | AI_SEMANTIC | MULTI_LEG | FEE_ADJUSTED
+  confidence      Float
+  stage           String   // 1 | 2 | 3
+  feeBreakdownJson String? // JSON: { mdr, tds, refund }
+  legsJson        String?  // JSON: [orderId, ...] for multi-leg
+  extractionJson  String?  // LLM-extracted fields for stage 2
+  resolvedAt      DateTime @default(now())
+}
+
+model ExceptionRecord {
+  id              String   @id @default(cuid())
+  run             PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId           String
+  orderId         String?
+  recordRef       String
+  orderAmount     Float?
+  bankAmount      Float?
+  gapAmount       Float?
+  reason          String
+  category        String   // NO_SETTLEMENT | DUPLICATE_BANK_CREDIT | UNEXPLAINABLE_GAP | FUTURE_DATE | CURRENCY_MISMATCH | EXTRACTION_FAILED
+  hypothesisJson   String   // JSON: list of { hypothesis, result, reason }
+  conclusion      String
+  recommendedAction String
+  disputePayloadJson String?
+  ledgerStatus    String   @default("ESCALATED")
+  createdAt       DateTime @default(now())
+}
+
+model AuditEntry {
+  id              String   @id @default(cuid())
+  run             PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId           String
+  seq             Int
+  timestamp       DateTime @default(now())
+  event           String
+  stage           String?
+  dataJson        String   @default("{}")
+}

@@ -1,0 +1,971 @@
+# ClearCut: The Self-Resolving Finance Controller
+## Complete Build Specification Document
+
+---
+
+## 1. PROJECT OVERVIEW
+
+**What you're building:**
+An agentic AI system that autonomously reconciles a merchant's internal order database against Razorpay settlement reports and bank statements. It resolves multi-leg settlements (split payments, partial refunds, blended fees), auto-matches 90% of records, and generates an honest exception list with forensic audit trails for the remaining 10%.
+
+**Core thesis:** Verification capacity > Generation speed. The AI never guesses financial data. It either proves a match mathematically or honestly admits it cannot resolve.
+
+**What makes this win:**
+- Handles multi-leg settlement graphs (not just 1-to-1 matching)
+- Uses AI for text extraction and code generation, NEVER for arithmetic
+- Produces an honest exception list with forensic dossiers
+- Idempotent, auditable, bounded execution
+- Closes the finance-ops loop (doesn't just report, but prepares resolution)
+
+---
+
+## 2. TECH STACK
+
+| Component | Technology | Why |
+|---|---|---|
+| Backend | Python 3.11+ | FastAPI for API endpoints |
+| Data Processing | Polars | Faster than Pandas, shows performance awareness |
+| AI/LLM | OpenAI GPT-4o-mini OR Groq Llama 3 | Fast, cheap, good at code generation |
+| LLM Framework | LangChain OR raw OpenAI API | Keep it simple, avoid over-engineering |
+| Frontend | Streamlit | Fast to build, clean tables, good for demos |
+| Database | SQLite (via Python `sqlite3`) | Lightweight, sufficient for synthetic data |
+| Architecture Diagram | Mermaid.js (in README) | Judges love visual architecture |
+| Version Control | Git + GitHub | Public repo required |
+
+**Do NOT use:**
+- Heavy frameworks (Django, Flask with complex routing)
+- Vector databases (not needed for this use case)
+- Fine-tuned models (overkill, judges will question it)
+- Cloud deployment (local demo is fine)
+
+---
+
+## 3. PROJECT FILE STRUCTURE
+
+```
+clearcut-ai/
+├── README.md                    # Must include Mermaid.js architecture diagram
+├── .env.example                 # Template for API keys
+├── .gitignore                   # Ignore .env, __pycache__, etc.
+├── requirements.txt             # All Python dependencies
+├── main.py                      # Streamlit entry point
+├── config.py                    # Configuration (fee matrix, timeouts, thresholds)
+│
+├── synthetic_data/
+│   ├── generate_data.py         # Script to generate all synthetic data
+│   ├── internal_orders.json     # 50+ internal order records
+│   ├── razorpay_settlements.csv # Razorpay settlement report
+│   ├── bank_statement.csv       # Bank statement with messy narrations
+│   └── expected_results.json    # Ground truth for validation
+│
+├── src/
+│   ├── __init__.py
+│   ├── pipeline.py              # Main orchestrator (runs all 4 stages)
+│   ├── stage1_hard_match.py     # Deterministic 1-to-1 matching
+│   ├── stage2_normalizer.py     # AI semantic normalization
+│   ├── stage3_graph_resolver.py # Multi-leg graph resolution
+│   ├── stage4_exception.py      # Honest exception orchestrator
+│   ├── audit_trail.py           # Audit logging system
+│   ├── fee_calculator.py        # MDR/TDS fee calculation engine
+│   └── models.py                # Pydantic models for data structures
+│
+├── ai/
+│   ├── __init__.py
+│   ├── llm_client.py            # LLM wrapper (OpenAI/Groq)
+│   ├── prompts.py               # All prompt templates
+│   └── code_sandbox.py          # Safe Python code execution sandbox
+│
+├── ui/
+│   ├── __init__.py
+│   ├── dashboard.py             # Main Streamlit dashboard
+│   ├── exception_view.py        # Honest exception list UI
+│   └── audit_view.py            # Audit trail viewer
+│
+├── tests/
+│   ├── test_stage1.py
+│   ├── test_stage2.py
+│   ├── test_stage3.py
+│   ├── test_stage4.py
+│   └── test_pipeline.py
+│
+└── docs/
+    ├── ARCHITECTURE.md          # Detailed architecture explanation
+    ├── SYNTHETIC_DATA.md        # Explanation of data quirks
+    └── DEMO.md                  # Screenshots and demo instructions
+```
+
+---
+
+## 4. SYNTHETIC DATA SPECIFICATION
+
+### 4.1 Data Generation Script (`synthetic_data/generate_data.py`)
+
+This script must generate exactly **55 records** across 3 files with intentional, realistic quirks.
+
+**Record Distribution:**
+| Category | Count | Description |
+|---|---|---|
+| Perfect 1-to-1 matches | 30 | Order ID + Amount + UTR all match exactly |
+| MDR fee deductions | 5 | Bank credit = Order amount minus 2% MDR |
+| TDS deductions | 3 | Bank credit = Order amount minus 1% TDS |
+| Multi-leg settlements | 4 | One bank credit = sum of 2-3 internal orders minus fees |
+| Partial refund cases | 3 | Order amount minus refund amount minus MDR = bank credit |
+| UPI reference mismatches | 3 | Correct amount but different UPI reference format |
+| Honest exceptions | 5 | Genuinely unresolvable (missing, duplicate, corrupted) |
+| Malformed narration | 2 | Bank narration is garbled/incomplete |
+
+### 4.2 Internal Orders Schema (`internal_orders.json`)
+
+```json
+[
+  {
+    "order_id": "ORD-2025-0001",
+    "merchant_id": "MERCH_AYUSH",
+    "customer_name": "Rahul Sharma",
+    "amount": 5000.00,
+    "currency": "INR",
+    "payment_method": "upi",
+    "status": "captured",
+    "created_at": "2025-08-28T10:15:00Z",
+    "refund_amount": 0.00,
+    "route_split": null,
+    "notes": ""
+  },
+  {
+    "order_id": "ORD-2025-0031",
+    "merchant_id": "MERCH_AYUSH",
+    "customer_name": "Priya Patel",
+    "amount": 10000.00,
+    "currency": "INR",
+    "payment_method": "credit_card",
+    "status": "captured",
+    "created_at": "2025-08-28T14:30:00Z",
+    "refund_amount": 0.00,
+    "route_split": {
+      "platform_fee": 200.00,
+      "vendor_amount": 9800.00
+    },
+    "notes": "Split via Razorpay Route"
+  }
+]
+```
+
+### 4.3 Razorpay Settlements Schema (`razorpay_settlements.csv`)
+
+```csv
+settlement_id,order_id,amount,fee_amount,refund_amount,settlement_status,settlement_date,utr
+SET-2025-0001,ORD-2025-0001,5000.00,0.00,0.00,settled,2025-08-29,UTR9834726101
+SET-2025-0002,ORD-2025-0002,8000.00,160.00,0.00,settled,2025-08-29,UTR9834726102
+SET-2025-0031,ORD-2025-0031,10000.00,200.00,0.00,settled,2025-08-29,UTR9834726131
+SET-2025-0050,ORD-2025-0050,7500.00,150.00,2000.00,settled,2025-08-29,UTR9834726150
+```
+
+### 4.4 Bank Statement Schema (`bank_statement.csv`)
+
+```csv
+txn_date,narration,amount,reference_number,status
+2025-08-29,RAZORPAY/MERCHANT/ORD-2025-0001,5000.00,UTR9834726101,credit
+2025-08-29,RAZORPAY*MERCH_AYUSH-ORD-2025-0002 UPI,7840.00,UTR9834726102,credit
+2025-08-29,RZRPAY SETTLEMENT BATCH 20250829,42500.00,BATCH-20250829,credit
+2025-08-29,RAZORPAY/ORD-2025-0050/REFUND-ADJ,5350.00,UTR9834726150,credit
+2025-08-29,NEFT CR RAZORPAY LTD SETTLEMENT,9900.00,,credit
+```
+
+### 4.5 Expected Results Schema (`expected_results.json`)
+
+```json
+{
+  "total_records": 55,
+  "expected_matches": {
+    "stage1_hard_match": 30,
+    "stage2_normalized": 3,
+    "stage3_multi_leg": 12,
+    "stage3_fee_adjusted": 5
+  },
+  "expected_exceptions": 5,
+  "expected_match_rate": "90.9%",
+  "exceptions": [
+    {
+      "record_id": "ORD-2025-0051",
+      "reason": "No corresponding settlement found in Razorpay report",
+      "hypothesis": "Possible risk-review hold or settlement cycle delay"
+    },
+    {
+      "record_id": "ORD-2025-0052",
+      "reason": "Duplicate bank credit detected",
+      "hypothesis": "Possible double settlement processing"
+    }
+  ]
+}
+```
+
+### 4.6 Specific Data Quirks to Include
+
+**Quirk 1: MDR Fee Deduction**
+- Internal order: ₹10,000, payment_method: "credit_card"
+- Razorpay settlement: amount=10000, fee_amount=200 (2% MDR)
+- Bank statement: narration shows ₹9,800 credit
+- Agent must identify the ₹200 gap as MDR
+
+**Quirk 2: TDS Deduction**
+- Internal order: ₹10,000
+- Razorpay settlement: amount=10000, fee_amount=0
+- Bank statement: ₹9,900 credit
+- Agent must identify ₹100 as 1% TDS
+
+**Quirk 3: Multi-Leg Settlement**
+- Bank statement: Single credit of ₹42,500
+- Internal orders: ORD-0010 (₹15,000), ORD-0011 (₹12,000), ORD-0012 (₹16,000)
+- Total orders: ₹43,000, minus 2% blended MDR (₹860) = ₹42,140... wait, let me recalculate.
+- Actually: Orders total ₹43,000. MDR on each: ₹15,000 × 2% = ₹300, ₹12,000 × 2% = ₹240, ₹16,000 × 2% = ₹320. Total MDR = ₹860. Net = ₹42,140.
+- Bank credit: ₹42,140 with narration "RZRPAY SETTLEMENT BATCH 20250829"
+- Agent must figure out which 3 orders sum to this amount after fees
+
+**Quirk 4: Partial Refund**
+- Internal order: ₹7,500, refund_amount: ₹2,000
+- Razorpay settlement: amount=7500, refund_amount=2000, fee_amount=150
+- Bank statement: ₹5,350 credit (7500 - 2000 - 150 = 5350)
+- Agent must reconstruct: Order - Refund - Fee = Bank Credit
+
+**Quirk 5: UPI Reference Mismatch**
+- Internal order: ORD-2025-0040, amount ₹3,000
+- Razorpay settlement: UTR = "UTR9834726140"
+- Bank statement: reference = "UPI/329084716201" (different format)
+- Agent must match via Order ID extraction from narration, not UTR
+
+**Quirk 6: Malformed Narration**
+- Bank narration: "RAZORPAY////ORD-2025-00//ERR" (garbled)
+- Amount: ₹6,000
+- Agent should flag this as low-confidence extraction
+
+**Quirk 7: Honest Exceptions**
+- Record with no matching settlement at all
+- Record with duplicate bank credit
+- Record where amount differs by an unexplainable margin (e.g., ₹10,000 order, ₹4,000 bank credit, no refund record)
+- Record with a future date (settlement date is after the batch window)
+- Record with currency mismatch (USD instead of INR)
+
+---
+
+## 5. CORE PIPELINE SPECIFICATION
+
+### 5.1 Pipeline Orchestrator (`src/pipeline.py`)
+
+```python
+class ReconPipeline:
+    """
+    Main orchestrator that runs all 4 stages sequentially.
+    Must be idempotent: running the same input twice produces identical output.
+    """
+    
+    def run(self, internal_orders, razorpay_settlements, bank_statement) -> ReconReport:
+        """
+        Returns a ReconReport containing:
+        - matched_records: list of MatchedRecord
+        - honest_exceptions: list of ExceptionRecord
+        - processing_errors: list of ProcessingError
+        - metrics: PipelineMetrics
+        - audit_trail: list of AuditEntry
+        """
+        
+        audit = AuditTrail()
+        
+        # Stage 1: Deterministic Hard Match
+        stage1_result = Stage1HardMatch().run(internal_orders, razorpay_settlements, bank_statement)
+        audit.log("Stage 1 complete", stage1_result.metrics)
+        
+        # Remove matched records from remaining pool
+        remaining_orders = stage1_result.unmatched_orders
+        remaining_bank_credits = stage1_result.unmatched_bank_credits
+        
+        # Stage 2: AI Semantic Normalization
+        stage2_result = Stage2Normalizer().run(remaining_orders, remaining_bank_credits)
+        audit.log("Stage 2 complete", stage2_result.metrics)
+        
+        # Stage 3: Multi-Leg Graph Resolution
+        stage3_result = Stage3GraphResolver().run(stage2_result.unmatched_orders, stage2_result.unmatched_bank_credits)
+        audit.log("Stage 3 complete", stage3_result.metrics)
+        
+        # Stage 4: Honest Exception Orchestrator
+        stage4_result = Stage4ExceptionOrchestrator().run(stage3_result.unresolved_records, audit)
+        audit.log("Stage 4 complete", stage4_result.metrics)
+        
+        return ReconReport(
+            matched_records=stage1_result.matched + stage2_result.matched + stage3_result.matched,
+            honest_exceptions=stage4_result.exceptions,
+            processing_errors=stage4_result.processing_errors,
+            metrics=self._calculate_metrics(stage1_result, stage2_result, stage3_result, stage4_result),
+            audit_trail=audit
+        )
+```
+
+### 5.2 Stage 1: Deterministic Hard Match (`src/stage1_hard_match.py`)
+
+**Logic:** Pure Python, no AI. Match on exact `order_id` + exact `amount` + exact `utr`.
+
+```python
+class Stage1HardMatch:
+    """
+    Deterministic 1-to-1 matching. No AI involved.
+    This is the guardrail layer.
+    """
+    
+    def run(self, orders, settlements, bank_credits) -> Stage1Result:
+        matched = []
+        unmatched_orders = []
+        unmatched_bank = []
+        
+        # Build lookup indices
+        settlement_by_order = {s.order_id: s for s in settlements}
+        bank_by_utr = {b.reference_number: b for b in bank_credits}
+        
+        for order in orders:
+            settlement = settlement_by_order.get(order.order_id)
+            if settlement is None:
+                unmatched_orders.append(order)
+                continue
+            
+            bank_credit = bank_by_utr.get(settlement.utr)
+            if bank_credit is None:
+                unmatched_orders.append(order)
+                continue
+            
+            # Exact match: order amount == settlement amount == bank credit amount
+            if (order.amount == settlement.amount and 
+                settlement.amount == bank_credit.amount):
+                matched.append(MatchedRecord(
+                    order=order,
+                    settlement=settlement,
+                    bank_credit=bank_credit,
+                    match_type="DETERMINISTIC_1_TO_1",
+                    confidence=1.0
+                ))
+            else:
+                unmatched_orders.append(order)
+                unmatched_bank.append(bank_credit)
+        
+        return Stage1Result(matched, unmatched_orders, unmatched_bank)
+```
+
+### 5.3 Stage 2: AI Semantic Normalizer (`src/stage2_normalizer.py`)
+
+**Logic:** Use LLM to extract structured fields from messy bank narrations. LLM returns confidence score.
+
+**LLM Prompt Template:**
+
+```python
+NORMALIZATION_PROMPT = """
+You are a bank statement parser for Razorpay settlements. Extract structured fields from the following bank narration.
+
+Bank Narration: "{narration}"
+
+Return ONLY a JSON object with these fields:
+- order_id: The Razorpay order ID if present (e.g., "ORD-2025-0001")
+- merchant_name: The merchant name if present
+- reference_number: Any UTR or reference number if present
+- settlement_batch: The settlement batch identifier if present
+- confidence: "high" if you are very certain, "medium" if somewhat certain, "low" if uncertain
+
+Rules:
+- Do NOT guess. If a field is not clearly present, set it to null.
+- Do NOT perform any calculations.
+- Do NOT infer amounts.
+- Return ONLY valid JSON. No explanations.
+"""
+```
+
+**Confidence Gate Logic:**
+
+```python
+class Stage2Normalizer:
+    def run(self, orders, bank_credits) -> Stage2Result:
+        matched = []
+        unmatched_orders = list(orders)
+        unmatched_bank = []
+        
+        for bank_credit in bank_credits:
+            extraction = self.llm_client.extract_narration(bank_credit.narration)
+            
+            if extraction.confidence == "high":
+                # Try to match using extracted order_id
+                matching_order = self._find_order_by_id(extraction.order_id, unmatched_orders)
+                if matching_order and matching_order.amount == bank_credit.amount:
+                    matched.append(MatchedRecord(
+                        order=matching_order,
+                        bank_credit=bank_credit,
+                        match_type="AI_SEMANTIC_NORMALIZATION",
+                        confidence=0.95,
+                        extraction=extraction
+                    ))
+                    unmatched_orders.remove(matching_order)
+                else:
+                    unmatched_bank.append(bank_credit)
+            
+            elif extraction.confidence == "medium":
+                # Flag for human verification of extracted fields
+                unmatched_bank.append(BankCreditWithFlag(
+                    bank_credit,
+                    flag="MEDIUM_CONFIDENCE_EXTRACTION",
+                    extracted_fields=extraction
+                ))
+            
+            else:  # low confidence
+                unmatched_bank.append(BankCreditWithFlag(
+                    bank_credit,
+                    flag="LOW_CONFIDENCE_EXTRACTION",
+                    extracted_fields=extraction
+                ))
+        
+        return Stage2Result(matched, unmatched_orders, unmatched_bank)
+```
+
+### 5.4 Stage 3: Multi-Leg Graph Resolver (`src/stage3_graph_resolver.py`)
+
+**Logic:** For lump-sum bank credits that don't match any single order, use LLM to generate Python code that finds the combination of orders + refunds + fees that equals the bank credit.
+
+**LLM Prompt Template:**
+
+```python
+GRAPH_RESOLVER_PROMPT = """
+You are a financial reconciliation assistant. You need to find which combination of internal orders, minus refunds and fees, equals a bank credit.
+
+Bank Credit Amount: ₹{bank_credit_amount}
+Bank Narration: "{narration}"
+
+Available Internal Orders:
+{orders_json}
+
+Fee Matrix:
+- UPI: 0% MDR
+- Net Banking: 1% MDR  
+- Credit Card: 2% MDR
+- Debit Card: 1.5% MDR
+- TDS: 1% (applied on settlement amount for certain merchant categories)
+
+Rules:
+1. Write a Python function called `find_match(orders, bank_credit_amount)` that:
+   - Tries all combinations of 1 to 5 orders
+   - For each combination, calculates the net amount after applying the correct MDR fee based on payment_method
+   - Subtracts any refund amounts
+   - Checks if the net amount equals bank_credit_amount within a tolerance of ₹0.01
+   - Returns the matching combination and the fee breakdown, or None if no match found
+2. The function must use itertools.combinations
+3. The function must have a maximum execution time of 5 seconds (use signal.alarm if possible)
+4. Do NOT use any external libraries beyond itertools, math
+5. Do NOT make assumptions about data not provided
+6. Return ONLY the Python code. No explanations.
+
+Write the function now:
+"""
+```
+
+**Code Sandbox (`ai/code_sandbox.py`):**
+
+```python
+import subprocess
+import tempfile
+import os
+import signal
+
+class CodeSandbox:
+    """
+    Safely executes LLM-generated Python code.
+    If the code doesn't match exactly, returns None.
+    """
+    
+    TIMEOUT_SECONDS = 5
+    
+    def execute(self, code: str, orders: list, bank_credit_amount: float) -> dict:
+        # Create a temporary Python file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            # Add the generated function + test invocation
+            test_code = f"""
+{code}
+
+# Test invocation
+result = find_match({orders}, {bank_credit_amount})
+print(result)
+"""
+            f.write(test_code)
+            temp_path = f.name
+        
+        try:
+            # Execute with timeout
+            result = subprocess.run(
+                ['python', temp_path],
+                capture_output=True,
+                text=True,
+                timeout=self.TIMEOUT_SECONDS
+            )
+            
+            if result.returncode == 0 and result.stdout.strip() != "None":
+                import json
+                return json.loads(result.stdout.strip())
+            else:
+                return None
+        
+        except subprocess.TimeoutExpired:
+            return {"error": "COMBINATORIAL_TIMEOUT"}
+        
+        finally:
+            os.unlink(temp_path)
+```
+
+### 5.5 Stage 4: Honest Exception Orchestrator (`src/stage4_exception.py`)
+
+**Logic:** For all unresolved records, generate a forensic dossier documenting every step taken.
+
+```python
+class Stage4ExceptionOrchestrator:
+    def run(self, unresolved_records, audit_trail) -> Stage4Result:
+        exceptions = []
+        processing_errors = []
+        
+        for record in unresolved_records:
+            try:
+                dossier = self._generate_forensic_dossier(record, audit_trail)
+                
+                # Generate dispute payload
+                dispute_payload = self._generate_dispute_payload(record, dossier)
+                
+                # Update ledger status
+                self._update_ledger_status(record.order_id, "ESCALATED")
+                
+                # Push webhook (simulate)
+                self._push_webhook(dispute_payload)
+                
+                exceptions.append(ExceptionRecord(
+                    record=record,
+                    dossier=dossier,
+                    dispute_payload=dispute_payload,
+                    status="ESCALATED"
+                ))
+            
+            except Exception as e:
+                processing_errors.append(ProcessingError(
+                    record_id=record.order_id,
+                    error=str(e),
+                    stage="stage4_exception_orchestrator"
+                ))
+        
+        return Stage4Result(exceptions, processing_errors)
+    
+    def _generate_forensic_dossier(self, record, audit_trail) -> dict:
+        return {
+            "record_id": record.order_id,
+            "timestamp": datetime.now().isoformat(),
+            "steps_checked": [
+                {"step": "Stage 1: Deterministic 1-to-1 Match", "result": "FAILED", "reason": "No exact order_id + amount + UTR match found"},
+                {"step": "Stage 2: AI Semantic Normalization", "result": "FAILED", "reason": "Bank narration could not be matched to any internal order"},
+                {"step": "Stage 3: Multi-Leg Graph Resolution", "result": "FAILED", "reason": "No combination of orders + fees equals the bank credit amount"},
+            ],
+            "hypotheses_tested": [
+                {"hypothesis": "MDR fee deduction", "result": "REJECTED", "reason": "Fee calculation does not explain the gap"},
+                {"hypothesis": "TDS deduction", "result": "REJECTED", "reason": "TDS calculation does not explain the gap"},
+                {"hypothesis": "Partial refund", "result": "REJECTED", "reason": "No refund record found for this order"},
+                {"hypothesis": "Multi-leg settlement", "result": "REJECTED", "reason": "No valid combination found within 5-second timeout"},
+            ],
+            "conclusion": "Unable to resolve automatically. Possible causes: risk-review hold, settlement cycle delay, or manual intervention required.",
+            "recommended_action": "Review Razorpay dashboard for this order ID. If no settlement found, file a dispute via Razorpay support.",
+            "audit_trail_id": audit_trail.current_id
+        }
+```
+
+### 5.6 Fee Calculator (`src/fee_calculator.py`)
+
+```python
+class FeeCalculator:
+    """
+    Deterministic fee calculation engine.
+    This is the source of truth for all fee computations.
+    """
+    
+    FEE_MATRIX = {
+        "upi": 0.00,
+        "netbanking": 0.01,
+        "credit_card": 0.02,
+        "debit_card": 0.015,
+        "wallet": 0.02,
+    }
+    
+    TDS_RATE = 0.01  # 1% TDS
+    
+    def calculate_mdr(self, amount: float, payment_method: str) -> float:
+        rate = self.FEE_MATRIX.get(payment_method, 0.02)  # Default to 2%
+        return round(amount * rate, 2)
+    
+    def calculate_tds(self, amount: float) -> float:
+        return round(amount * self.TDS_RATE, 2)
+    
+    def calculate_net_settlement(self, order) -> float:
+        mdr = self.calculate_mdr(order.amount, order.payment_method)
+        refund = order.refund_amount or 0.00
+        net = order.amount - mdr - refund
+        
+        if order.route_split:
+            # For Route splits, platform fee is already included in route_split
+            net = order.route_split.vendor_amount - refund
+        
+        return round(net, 2)
+```
+
+### 5.7 Audit Trail (`src/audit_trail.py`)
+
+```python
+class AuditTrail:
+    """
+    Append-only audit log. Every decision is recorded.
+    """
+    
+    def __init__(self):
+        self.entries = []
+        self.current_id = 0
+    
+    def log(self, event: str, data: dict = None):
+        self.current_id += 1
+        self.entries.append({
+            "id": self.current_id,
+            "timestamp": datetime.now().isoformat(),
+            "event": event,
+            "data": data or {},
+        })
+    
+    def log_match(self, record_id: str, match_type: str, confidence: float):
+        self.log("MATCH_FOUND", {
+            "record_id": record_id,
+            "match_type": match_type,
+            "confidence": confidence,
+        })
+    
+    def log_exception(self, record_id: str, reason: str):
+        self.log("EXCEPTION_FLAGGED", {
+            "record_id": record_id,
+            "reason": reason,
+        })
+    
+    def to_json(self) -> str:
+        return json.dumps(self.entries, indent=2)
+    
+    def to_dataframe(self):
+        import polars as pl
+        return pl.DataFrame(self.entries)
+```
+
+---
+
+## 6. UI SPECIFICATION (Streamlit)
+
+### 6.1 Main Dashboard (`ui/dashboard.py`)
+
+**Layout:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ClearCut: The Self-Resolving Finance Controller        │
+│  Track 04 — AI Finance Controller                       │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  [Upload Internal Orders JSON]                          │
+│  [Upload Razorpay Settlements CSV]                      │
+│  [Upload Bank Statement CSV]                            │
+│                                                         │
+│  [🚀 Run Reconciliation Pipeline]                       │
+│                                                         │
+├─────────────────────────────────────────────────────────┤
+│  PIPELINE METRICS                                       │
+│  ┌──────────┬──────────┬──────────┬──────────┐         │
+│  │ Total    │ Matched  │ Exceptions│ Throughput│        │
+│  │ 55       │ 50 (91%) │ 5 (9%)   │ 3.8s     │         │
+│  └──────────┴──────────┴──────────┴──────────┘         │
+│                                                         │
+│  ┌─────────────────────────────────────────────┐        │
+│  │  Match Rate Pie Chart                       │        │
+│  │  [90.9% Auto-Matched] [9.1% Exceptions]     │        │
+│  └─────────────────────────────────────────────┘        │
+│                                                         │
+├─────────────────────────────────────────────────────────┤
+│  MATCHED RECORDS (Expandable Table)                     │
+│  ┌────────┬────────┬────────┬──────────┬─────────┐     │
+│  │ Order  │ Amount │ Bank   │ Match    │ Stage   │     │
+│  │ ID     │        │ Credit │ Type     │         │     │
+│  ├────────┼────────┼────────┼──────────┼─────────┤     │
+│  │ ORD-01 │ 5,000  │ 5,000  │ 1-to-1   │ Stage 1 │     │
+│  │ ORD-31 │ 10,000 │ 9,800  │ Fee Adj  │ Stage 3 │     │
+│  │ ORD-36 │ 15,000 │ 42,140 │ Multi-Leg│ Stage 3 │     │
+│  └────────┴────────┴────────┴──────────┴─────────┘     │
+│                                                         │
+├─────────────────────────────────────────────────────────┤
+│  🚨 HONEST EXCEPTION LIST (Red Border)                  │
+│  ┌────────┬────────┬──────────────────────────┐        │
+│  │ Order  │ Amount │ Reason                   │        │
+│  ├────────┼────────┼──────────────────────────┤        │
+│  │ ORD-51 │ 8,000  │ No settlement found      │        │
+│  │ ORD-52 │ 12,000 │ Duplicate bank credit    │        │
+│  │ ORD-53 │ 10,000 │ Unexplainable ₹6,000 gap │        │
+│  │ ORD-54 │ 5,000  │ Future settlement date   │        │
+│  │ ORD-55 │ 3,000  │ Currency mismatch (USD)  │        │
+│  └────────┴────────┴──────────────────────────┘        │
+│                                                         │
+│  [📋 Export Exception Report]                           │
+│  [📤 Export Dispute Payloads]                           │
+│  [🔍 View Full Audit Trail]                             │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Exception Detail View (`ui/exception_view.py`)
+
+When user clicks on an exception row, show the forensic dossier:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  EXCEPTION DOSSIER: ORD-2025-0053                       │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Order Amount: ₹10,000.00                               │
+│  Bank Credit:  ₹4,000.00                                │
+│  Gap:          ₹6,000.00                                │
+│                                                         │
+│  STEPS CHECKED:                                         │
+│  ✅ Stage 1: Deterministic Match → FAILED               │
+│     Reason: No exact order_id + amount + UTR match      │
+│                                                         │
+│  ✅ Stage 2: AI Normalization → FAILED                  │
+│     Reason: Bank narration matched but amount mismatch   │
+│                                                         │
+│  ✅ Stage 3: Multi-Leg Resolution → FAILED              │
+│     Reason: No combination of orders explains ₹6,000 gap│
+│                                                         │
+│  HYPOTHESES TESTED:                                     │
+│  ❌ MDR Fee Deduction: 2% of ₹10,000 = ₹200 ≠ ₹6,000   │
+│  ❌ TDS Deduction: 1% of ₹10,000 = ₹100 ≠ ₹6,000       │
+│  ❌ Partial Refund: No refund record found              │
+│  ❌ Multi-Leg: No valid combination found               │
+│                                                         │
+│  CONCLUSION:                                            │
+│  Unable to resolve automatically. The ₹6,000 gap        │
+│  cannot be explained by fees, refunds, or split         │
+│  settlements. Possible causes: risk-review hold,        │
+│  chargeback, or manual settlement adjustment.           │
+│                                                         │
+│  RECOMMENDED ACTION:                                    │
+│  Review Razorpay dashboard for order ORD-2025-0053.     │
+│  Check for chargebacks or risk holds.                   │
+│                                                         │
+│  [📤 Generate Dispute Payload]                          │
+│  [📧 Send to Finance Team]                              │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 6.3 Audit Trail View (`ui/audit_view.py`)
+
+Show a chronological table of every decision the pipeline made:
+
+```
+┌──────┬─────────────────────┬──────────────────────────────────┐
+│ ID   │ Timestamp           │ Event                            │
+├──────┼─────────────────────┼──────────────────────────────────┤
+│ 1    │ 2025-09-05 10:00:01 │ Pipeline started                 │
+│ 2    │ 2025-09-05 10:00:01 │ Stage 1: Hard match started      │
+│ 3    │ 2025-09-05 10:00:02 │ Stage 1: 30 records matched      │
+│ 4    │ 2025-09-05 10:00:02 │ Stage 2: Normalization started   │
+│ 5    │ 2025-09-05 10:00:03 │ Stage 2: 3 records matched       │
+│ 6    │ 2025-09-05 10:00:03 │ Stage 3: Graph resolution started│
+│ 7    │ 2025-09-05 10:00:04 │ Stage 3: ORD-0036 multi-leg match│
+│ 8    │ 2025-09-05 10:00:05 │ Stage 3: 12 records matched      │
+│ 9    │ 2025-09-05 10:00:05 │ Stage 4: Exception processing    │
+│ 10   │ 2025-09-05 10:00:06 │ EXCEPTION: ORD-0051 flagged      │
+│ 11   │ 2025-09-05 10:00:06 │ EXCEPTION: ORD-0052 flagged      │
+│ 12   │ 2025-09-05 10:00:07 │ Pipeline complete: 50/55 matched │
+└──────┴─────────────────────┴──────────────────────────────────┘
+```
+
+---
+
+## 7. README SPECIFICATION
+
+Your `README.md` must include:
+
+```markdown
+# ClearCut: The Self-Resolving Finance Controller
+
+> Track 04 — AI Finance Controller | Razorpay AI Buildathon
+
+## The Problem
+
+[2-3 sentences about multi-leg settlement reconciliation pain]
+
+## The Solution
+
+[2-3 sentences about what ClearCut does]
+
+## Architecture
+
+[Mermaid.js diagram - see below]
+
+## How It Works
+
+[4-stage pipeline description]
+
+## Metrics (50-Record Synthetic Batch)
+
+| Metric | Value |
+|--------|-------|
+| Total Records | 55 |
+| Auto-Matched | 50 (90.9%) |
+| Honest Exceptions | 5 (9.1%) |
+| Throughput | 3.8 seconds |
+| False Positives | 0 |
+
+## AI Judgment: Where We Chose NOT to Use AI
+
+[Explicit explanation of deterministic layers vs AI layers]
+
+## Running Locally
+
+[Step-by-step instructions]
+
+## Project Structure
+
+[File tree]
+
+## Synthetic Data
+
+[Explanation of the 55-record dataset and its quirks]
+
+## What Broke and How We Fixed It
+
+[Summary of the 4 major challenges]
+```
+
+### Mermaid.js Architecture Diagram (include in README)
+
+```mermaid
+graph TD
+    A[Internal Orders JSON] --> E[Pipeline Orchestrator]
+    B[Razorpay Settlements CSV] --> E
+    C[Bank Statement CSV] --> E
+    
+    E --> F[Stage 1: Deterministic Hard Match]
+    F -->|Matched| G[✅ Matched Records]
+    F -->|Unmatched| H[Stage 2: AI Semantic Normalizer]
+    
+    H -->|High Confidence Match| G
+    H -->|Medium/Low Confidence| I[Stage 3: Multi-Leg Graph Resolver]
+    
+    I -->|Code Generated & Executed| J{Math Balances?}
+    J -->|Yes, exact ₹0.00| G
+    J -->|No| K[Stage 4: Honest Exception Orchestrator]
+    
+    K --> L[🚨 Honest Exception List]
+    K --> M[Forensic Dossier]
+    K --> N[Dispute Payload]
+    K --> O[Ledger Status: ESCALATED]
+    
+    E --> P[Audit Trail - Every Decision Logged]
+    
+    style G fill:#2ecc71,color:#fff
+    style L fill:#e74c3c,color:#fff
+    style P fill:#3498db,color:#fff
+```
+
+---
+
+## 8. TESTING CHECKLIST
+
+Before submitting, verify ALL of these:
+
+### Data Tests
+- [ ] Synthetic data generator produces exactly 55 records
+- [ ] All 7 data quirks are present and correctly formatted
+- [ ] Expected results JSON matches the generated data
+
+### Pipeline Tests
+- [ ] Stage 1 correctly matches all 30 perfect 1-to-1 records
+- [ ] Stage 2 correctly extracts order IDs from at least 3 different bank narration formats
+- [ ] Stage 2 confidence gate works (high/medium/low routing)
+- [ ] Stage 3 correctly resolves at least 2 multi-leg settlements
+- [ ] Stage 3 code sandbox times out after 5 seconds
+- [ ] Stage 4 generates forensic dossiers for all 5 exceptions
+- [ ] Pipeline is idempotent (running twice produces identical results)
+
+### AI Tests
+- [ ] LLM never performs arithmetic (verify via prompt inspection)
+- [ ] LLM code generation produces valid Python
+- [ ] Code sandbox rejects any code that doesn't balance to ₹0.00
+
+### UI Tests
+- [ ] Dashboard loads and displays metrics correctly
+- [ ] Matched records table is sortable and filterable
+- [ ] Honest exception list has red border and is clearly visible
+- [ ] Clicking an exception shows the full forensic dossier
+- [ ] Audit trail view shows chronological entries
+
+### Edge Case Tests
+- [ ] Empty CSV file → graceful error, no crash
+- [ ] Malformed CSV header → processing error logged, pipeline continues
+- [ ] Missing column → processing error logged, pipeline continues
+- [ ] All records unmatched → honest exception list shows all records
+
+---
+
+## 9. PITCH VIDEO SCRIPT (5 Minutes)
+
+**0:00 - 0:45 | The Hook**
+*(Screen recording of a messy Excel spreadsheet with reconciliation errors)*
+
+"Every merchant using Razorpay faces the same silent problem. The money that should have arrived doesn't match the money that actually arrived. A ₹45,000 bank credit might be 12 orders across Razorpay Route splits, minus partial refunds, minus blended MDR and TDS. Finance teams untangle this by hand. Today, I'm going to show you an AI agent that does it autonomously."
+
+**0:45 - 1:30 | Architecture**
+*(Show Mermaid.js diagram from README)*
+
+"ClearCut runs a 4-stage agentic pipeline. Stage 1 is pure deterministic matching — no AI involved, because where determinism guarantees zero hallucination risk, we chose not to use AI. Stage 2 uses an LLM strictly for text extraction from messy bank narrations. Stage 3 is where the magic happens: for lump-sum settlements, the LLM generates Python code that reconstructs multi-leg transaction graphs. A deterministic sandbox executes the code. If the math doesn't balance to exactly zero rupees zero paise, the match is rejected. The LLM is a code generator, never a calculator. Stage 4 handles everything the previous stages couldn't resolve, generating honest exception dossiers with full audit trails."
+
+**1:30 - 3:00 | Live Demo: Multi-Leg Resolution**
+*(Screen recording: upload files, run pipeline, show Stage 3 in action)*
+
+"Watch what happens with Row 36. The bank shows a single credit of ₹42,140. Our internal database has three separate orders: ₹15,000, ₹12,000, and ₹16,000. Watch the agent generate Python code, execute it in the sandbox, identify that these three orders minus their respective 2% credit card MDR fees equals exactly ₹42,140, and auto-match all three records. This is not fuzzy matching. This is mathematically verified reconciliation."
+
+**3:00 - 4:00 | Live Demo: Honest Exception**
+*(Screen recording: show an exception row, click into the dossier)*
+
+"But what about true failures? Look at Row 53. The order was ₹10,000. The bank credit is ₹4,000. The agent checked deterministic matching — failed. Checked AI normalization — failed. Checked multi-leg combinations — failed. Tested MDR hypothesis — rejected. Tested TDS hypothesis — rejected. Tested partial refund — no record found. The agent honestly admits: it cannot resolve this. And instead of guessing, it generates this forensic dossier, updates the ledger status to 'Escalated', and pre-drafts a dispute payload. This is what verification capacity looks like."
+
+**4:00 - 4:45 | Metrics**
+*(Show dashboard metrics)*
+
+"Across our 55-record synthetic batch: 50 records auto-matched, 90.9% match rate. 5 honest exceptions, 9.1%. Zero false positives. Throughput: 3.8 seconds. And this is idempotent — running the same batch twice produces identical results."
+
+**4:45 - 5:00 | Close**
+"ClearCut doesn't replace the finance team. It gives them a superpower: an auditable, self-resolving reconciliation engine that knows exactly what it doesn't know. Thank you."
+
+---
+
+## 10. FINAL SUBMISSION CHECKLIST
+
+- [ ] GitHub repo is public
+- [ ] README has Mermaid.js architecture diagram
+- [ ] Synthetic data folder contains all 3 CSV/JSON files + generator script
+- [ ] `.env.example` is present (no actual API keys in repo)
+- [ ] `requirements.txt` is complete
+- [ ] All 4 stages are implemented and working
+- [ ] Honest exception list shows exactly 5 records with forensic dossiers
+- [ ] Audit trail is complete and viewable
+- [ ] Pitch video is under 5 minutes, unlisted YouTube
+- [ ] Application form answers are finalized
+- [ ] Streamlit app runs locally without errors
+
+---
+
+Ayush, this is your complete build specification. Every module, every data structure, every prompt, every UI element is defined. 
+
+**What do you want me to generate next?**
+
+1. **The complete synthetic data generator script** (`generate_data.py`) — ready to run
+2. **The complete pipeline code** (`pipeline.py` + all 4 stages) — ready to run
+3. **The complete Streamlit UI code** — ready to run
+4. **The LLM prompt templates and code sandbox** — ready to run
+5. **The README.md with Mermaid diagram** — ready to paste
+
+Tell me which one and I'll generate the full, working code immediately.
