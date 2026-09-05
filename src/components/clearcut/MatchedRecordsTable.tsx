@@ -177,10 +177,12 @@ export function MatchedRecordsTable({ matches }: Props) {
         </div>
 
         {/* Table */}
-        <div className="rounded-2xl border border-border bg-card/40 backdrop-blur-sm overflow-hidden">
+        <div className="rounded-2xl border border-border bg-card/40 backdrop-blur-sm overflow-hidden relative">
+          {/* Top scan line */}
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent pointer-events-none" />
           <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border">
+              <thead className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border z-10">
                 <tr className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   <Th label="Order ID" sortKey="orderId" current={sortKey} dir={sortDir} onSort={toggleSort} />
                   <Th label="Order Amount" sortKey="orderAmount" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
@@ -192,13 +194,14 @@ export function MatchedRecordsTable({ matches }: Props) {
               </thead>
               <tbody>
                 <AnimatePresence initial={false}>
-                  {pageData.map((m) => (
+                  {pageData.map((m, rowIdx) => (
                     <motion.tr
                       key={m.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="border-b border-border/40 hover:bg-emerald-500/5 transition-colors cursor-pointer"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      transition={{ duration: 0.2, delay: Math.min(rowIdx * 0.015, 0.3) }}
+                      className="border-b border-border/40 hover:bg-emerald-500/5 transition-colors cursor-pointer group"
                       onClick={() => setExpanded(expanded === m.id ? null : m.id)}
                     >
                       <td className="px-3 py-2.5">

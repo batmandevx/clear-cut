@@ -160,12 +160,13 @@ function SourceCard({ title, subtitle, icon, color, count, totalValue, sample }:
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.5 }}
-      className="rounded-2xl border border-border bg-card/60 backdrop-blur-sm p-5 hover:border-primary/40 transition-colors"
+      className="rounded-2xl border border-border bg-card/60 backdrop-blur-sm p-5 hover:border-primary/40 transition-colors group card-lift"
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl ${c.bg} ${c.text}`}>
+          <div className={`relative inline-flex items-center justify-center w-10 h-10 rounded-xl ${c.bg} ${c.text} group-hover:scale-110 transition-transform`}>
             {icon}
+            <div className={`absolute inset-0 rounded-xl ${c.bg} opacity-0 group-hover:opacity-100 blur-md transition-opacity`} />
           </div>
           <div>
             <div className="text-sm font-semibold">{title}</div>
@@ -173,7 +174,15 @@ function SourceCard({ title, subtitle, icon, color, count, totalValue, sample }:
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold tabular-nums">{count}</div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+            className="text-2xl font-bold tabular-nums"
+          >
+            {count}
+          </motion.div>
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider">records</div>
         </div>
       </div>

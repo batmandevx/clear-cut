@@ -149,3 +149,68 @@ Prisma (SQLite @ db/custom.db)
   - `Footer.tsx` — sticky footer
   - `format.ts` — presentation helpers
   - `types.ts` — frontend view models
+
+---
+
+## Session 2 — UI/UX Supercharge (animated, attractive, compelling)
+
+Task ID: 2
+Agent: main
+Task: Improve the UI/UX to make it more attractive, animated, compelling, and convincing for Razorpay Buildathon judges.
+
+Work Log:
+- Added **global background system**: `GradientMesh` (3 drifting blurred orbs in emerald/violet/cyan), `ParticleField` (14 floating ₹/✓/▲ particles drifting upward), `CursorSpotlight` (radial emerald glow that trails the cursor with eased lerp). All mounted in `layout.tsx` behind a `relative z-10` content wrapper.
+- Added 7 new CSS keyframes + utilities in `globals.css`:
+  - `breathe` (subtle scale pulse for icons/badges)
+  - `glow-pulse` / `glow-pulse-red` (dramatic neon breathing glow for active/critical elements)
+  - `data-flow` (data packet sliding along a wire)
+  - `spin-slow`, `typewriter-cursor`, `count-flash`, `ripple-out`, `float-particle`
+  - `.holo-border` (animated gradient border via masked pseudo-element)
+  - `.gradient-text-emerald` / `.gradient-text-red` (animated gradient text)
+  - `.card-lift` (hover translateY -4px with spring easing)
+  - `.inner-glow-emerald/red` (inset glow)
+  - `.cursor-spotlight` (CSS var-based radial gradient)
+  - prefers-reduced-motion guard
+- **Hero** (`Hero.tsx`): completely rebuilt
+  - Animated title with `gradient-text-emerald` + 9s gradient shift
+  - Logo with `holo-border`, breathing icon, and **2 orbiting dots** (cyan 6s + violet 9s reverse)
+  - Live stat ticker (marquee) with 8 impressive stats scrolling horizontally with masked edges
+  - Animated **money flow visualization**: 3 nodes (Orders → Settlements → Bank) connected by wires with pulsing `data-flow` dots traveling between them
+  - Hover shimmer overlay on CTA button
+  - Animated feature pills that scale on hover
+- **ArchitectureDiagram**: added animated data flow arrows between stage cards (desktop) with colored `data-flow` dots, `holo-border` accents on cards, group-hover icon scale, "Pipeline architecture" eyebrow badge
+- **PipelineRunner**: added `holo-border`, top shimmer bar, scan-line overlay during runs, "LIVE" badge with pulsing ping dot, **typewriter "agent thinking" terminal** showing `clearcut-agent $ <thinking message>` with blinking cursor and macOS-style traffic lights, refactored `useThinkingMessage` hook into a pure `deriveThinkingIdx` function (no setState in effect), live audit stream with event count
+- **MetricsDashboard**: animated count-up with spring easing (1.4s, [0.34, 1.56, 0.64, 1]), card hover lift + color-matched glow, **stage breakdown sparkline strip** (4 vertical bars animating in with staggered delays, hover-reveals value), `holo-border` on idempotency badge
+- **ExceptionList**: dramatic redesign
+  - **Criticality summary bar** at top (CRITICAL / HIGH / MEDIUM / LOW counts)
+  - Critical exceptions get `animate-glow-pulse-red` (breathing red neon) + **pulse ring** in top-left corner + animated red dot on category icon
+  - Criticality badge on every exception
+  - ESCALATED badge gets a pulsing red dot
+  - Staggered entrance (delay = idx * 0.06)
+  - Hover scale on category icon
+  - Dossier gets a scan-line overlay + staggered hypothesis reveal
+- **Charts**: 3D tilt entrance (rotateX), hover lift, pulsing ring around donut center, animated gradient match-rate %, glowing legend dots, animated bar chart with hover tooltips
+- **MatchedRecordsTable**: top scan-line accent, staggered row entrance (delay = rowIdx * 0.015), `group` class for hover effects, sticky header with z-index
+- **DataSourceCards**: `card-lift` class for hover translateY, animated count-up with spring, icon hover scale + blur glow
+
+Verification Results:
+- `bun run lint`: ✅ 0 errors, 0 warnings (after refactoring setState-in-effect issues)
+- `bun run dev`: ✅ running on port 3000, no runtime errors
+- agent-browser: ✅ verified
+  - Hero renders with gradient title, orbiting dots, money flow viz, stat ticker
+  - Architecture diagram with animated data flow dots
+  - Pipeline runner with holoborder + scan line
+  - Metrics with animated count-ups + sparkline
+  - Charts with pulsing ring + animated donut
+  - Matched records table with scan line + staggered rows
+  - Exception list with criticality badges (CRITICAL/HIGH/MEDIUM/LOW), pulsing red glow on critical, staggered entrance
+  - Forensic dossier expansion works (hypotheses, conclusion, dispute payload all show)
+  - Previous run results persist on reload (55 matched, 6 exceptions)
+  - No console errors
+
+Stage Summary:
+- Files created: `src/components/clearcut/Background.tsx` (CursorSpotlight + ParticleField + GradientMesh)
+- Files modified: `src/app/globals.css` (7 new keyframes + 12 new utility classes), `src/app/layout.tsx` (mount background components), `src/components/clearcut/Hero.tsx` (full rebuild with money flow viz + stat ticker), `src/components/clearcut/ArchitectureDiagram.tsx` (animated data flow), `src/components/clearcut/PipelineRunner.tsx` (typewriter terminal + scan lines), `src/components/clearcut/MetricsDashboard.tsx` (sparkline + spring count-ups), `src/components/clearcut/ExceptionList.tsx` (criticality meter + pulse rings), `src/components/clearcut/Charts.tsx` (3D tilt + pulsing ring), `src/components/clearcut/MatchedRecordsTable.tsx` (scan line + staggered rows), `src/components/clearcut/DataSourceCards.tsx` (card-lift + animated counts)
+- The page now has 3 layers of background animation (mesh, particles, spotlight), 7 distinct keyframe animations, holographic borders on key cards, a live agent terminal with typewriter effect, criticality-graded exception cards with breathing red glow, and animated data flow lines between pipeline stages.
+- Result: significantly more attractive, animated, compelling, and convincing — ready to impress judges.
+

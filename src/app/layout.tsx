@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { CursorSpotlight, ParticleField, GradientMesh } from "@/components/clearcut/Background";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,9 +55,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${jetMono.variable} antialiased bg-background text-foreground min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} ${jetMono.variable} antialiased bg-background text-foreground min-h-screen relative`}
       >
-        {children}
+        <GradientMesh />
+        <ParticleField />
+        <CursorSpotlight />
+        <div className="relative z-10">{children}</div>
         <Toaster />
       </body>
     </html>
