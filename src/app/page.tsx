@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Hero } from "@/components/clearcut/Hero";
 import { ArchitectureDiagram } from "@/components/clearcut/ArchitectureDiagram";
+import { WhyClearCut } from "@/components/clearcut/WhyClearCut";
 import { DataSourceCards } from "@/components/clearcut/DataSourceCards";
 import { PipelineRunner } from "@/components/clearcut/PipelineRunner";
 import { MetricsDashboard } from "@/components/clearcut/MetricsDashboard";
@@ -11,6 +12,10 @@ import { MatchedRecordsTable } from "@/components/clearcut/MatchedRecordsTable";
 import { ExceptionList } from "@/components/clearcut/ExceptionList";
 import { AuditTrail } from "@/components/clearcut/AuditTrail";
 import { Footer } from "@/components/clearcut/Footer";
+import { SourceDataExplorer } from "@/components/clearcut/SourceDataExplorer";
+import { KeyboardHelp, KeyboardHelpButton } from "@/components/clearcut/KeyboardHelp";
+import { StickyActionBar } from "@/components/clearcut/StickyActionBar";
+import { useKeyboardShortcuts } from "@/components/clearcut/useKeyboardShortcuts";
 import type {
   DataPayload,
   ResultsPayload,
@@ -29,6 +34,11 @@ export default function Home() {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressLog, setProgressLog] = useState<ProgressEvent[]>([]);
+  const [dataExplorerOpen, setDataExplorerOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // Refs for scroll-to-section behavior on shortcuts
+  const searchRef = useRef<{ focusSearch: () => void } | null>(null);
 
   // Initial load: fetch data + latest results
   const loadData = useCallback(async () => {
@@ -66,6 +76,7 @@ export default function Home() {
   }, [loadData, loadResults]);
 
   const runPipeline = useCallback(async () => {
+    if (isRunning) return;
     setIsRunning(true);
     setProgressLog([]);
     toast.info("Pipeline started", {
@@ -78,7 +89,6 @@ export default function Home() {
         throw new Error(err.message ?? `HTTP ${r.status}`);
       }
       const json = await r.json();
-      // json has { runId, report, progressLog }
       const report = json.report;
       setProgressLog(json.progressLog ?? []);
       const results: ResultsPayload = {
@@ -110,7 +120,6 @@ export default function Home() {
       toast.success("Pipeline complete", {
         description: `${report.metrics.matched}/${report.metrics.totalRecords} matched · ${report.metrics.exceptions} honest exceptions · ${report.metrics.matchRatePct}% match rate`,
       });
-      // Refresh data counts (lastRunId)
       loadData();
     } catch (err) {
       console.error(err);
@@ -120,7 +129,7 @@ export default function Home() {
     } finally {
       setIsRunning(false);
     }
-  }, [loadData]);
+  }, [isRunning, loadData]);
 
   const metrics: PipelineMetricsVM | null = results?.run
     ? {
@@ -139,12 +148,58 @@ export default function Home() {
       }
     : null;
 
+  // Keyboard shortcuts — wire up all the handlers
+  useKeyboardShortcuts({
+    onRun: runPipeline,
+    onSearch: () => {
+      // Try to focus the first search input we find on the page
+      const input = document.querySelector<HTMLInputElement>(
+        'input[type="text"][placeholder*="Search"], input[type="text"][placeholder*="audit"]',
+      );
+      if (input) {
+        input.focus();
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        toast.info("No search field available", {
+          description: "Run the pipeline first to see search-enabled tables.",
+        });
+      }
+    },
+    onExport: () => {
+      if (!results) {
+        toast.info("Nothing to export yet", {
+          description: "Run the pipeline first to generate a report.",
+        });
+        return;
+      }
+      window.open("/api/export?format=json", "_blank");
+      toast.success("Export started", { description: "Downloading full report JSON…" });
+    },
+    onDataExplorer: () => {
+      setDataExplorerOpen(true);
+    },
+    onHelp: () => setHelpOpen((v) => !v),
+  });
+
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Sticky quick-action bar (appears on scroll) */}
+      <StickyActionBar
+        isRunning={isRunning}
+        hasResults={!!results}
+        onRun={runPipeline}
+        onOpenExplorer={() => setDataExplorerOpen(true)}
+        onExport={() => window.open("/api/export?format=json", "_blank")}
+      />
       <main className="flex-1">
         <Hero onRun={runPipeline} isRunning={isRunning} />
         <ArchitectureDiagram />
-        <DataSourceCards data={data} isLoading={dataLoading} />
+        <WhyClearCut />
+        <DataSourceCards
+          data={data}
+          isLoading={dataLoading}
+          onOpenExplorer={() => setDataExplorerOpen(true)}
+        />
         <PipelineRunner
           isRunning={isRunning}
           progressLog={progressLog}
@@ -176,17 +231,39 @@ export default function Home() {
                 to launch the 4-stage agentic pipeline on the seeded dataset of 61 orders,
                 60 settlements, and 54 bank credits.
               </p>
-              <button
-                onClick={runPipeline}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform"
-              >
-                ▶ Run now
-              </button>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <button
+                  onClick={runPipeline}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                >
+                  ▶ Run now
+                </button>
+                <button
+                  onClick={() => setDataExplorerOpen(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-background/60 border border-border text-foreground/90 font-medium text-sm hover:bg-background hover:border-primary/40 transition-colors"
+                >
+                  📊 Explore source data
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70 mt-4 font-mono">
+                Tip: press <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px]">?</kbd> for keyboard shortcuts
+              </p>
             </div>
           </section>
         )}
       </main>
       <Footer />
+
+      {/* Floating help button */}
+      <KeyboardHelpButton onClick={() => setHelpOpen(true)} />
+
+      {/* Modals */}
+      <SourceDataExplorer
+        open={dataExplorerOpen}
+        onClose={() => setDataExplorerOpen(false)}
+        data={data}
+      />
+      <KeyboardHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }

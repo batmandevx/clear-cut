@@ -1,16 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileJson, FileText, Landmark, Database, Copy, ShieldCheck } from "lucide-react";
+import { FileJson, FileText, Landmark, Database, ShieldCheck, ArrowUpRight } from "lucide-react";
 import type { DataPayload } from "./types";
 import { formatINR, paymentMethodColor, paymentMethodLabel } from "./format";
 
 interface Props {
   data: DataPayload | null;
   isLoading: boolean;
+  onOpenExplorer?: () => void;
 }
 
-export function DataSourceCards({ data, isLoading }: Props) {
+export function DataSourceCards({ data, isLoading, onOpenExplorer }: Props) {
   if (isLoading || !data) {
     return (
       <section className="py-10">
@@ -37,12 +38,25 @@ export function DataSourceCards({ data, isLoading }: Props) {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className="mb-6"
+          className="mb-6 flex items-end justify-between gap-4"
         >
-          <h2 className="text-2xl font-bold mb-1">Three messy inputs</h2>
-          <p className="text-sm text-muted-foreground">
-            Real-world finance data is never clean. Each source has its own schema, narrations, and quirks.
-          </p>
+          <div>
+            <h2 className="text-2xl font-bold mb-1">Three messy inputs</h2>
+            <p className="text-sm text-muted-foreground">
+              Real-world finance data is never clean. Each source has its own schema, narrations, and quirks.
+            </p>
+          </div>
+          {onOpenExplorer && (
+            <button
+              onClick={onOpenExplorer}
+              className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/60 border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-background hover:border-primary/40 hover:scale-[1.02] active:scale-[0.98] transition-all group"
+            >
+              <Database className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+              Explore source data
+              <ArrowUpRight className="w-3 h-3 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+              <kbd className="ml-1 px-1.5 py-0.5 rounded bg-background/80 border border-border text-[9px] font-mono">D</kbd>
+            </button>
+          )}
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -95,7 +109,7 @@ export function DataSourceCards({ data, isLoading }: Props) {
           />
         </div>
 
-        {/* Value reconciliation summary */}
+        {/* Value reconciliation summary + open explorer button (mobile) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -112,6 +126,15 @@ export function DataSourceCards({ data, isLoading }: Props) {
             <ValueDiff label="Settlements gross" value={totalSettlementsValue} compare={totalOrdersValue} />
             <ValueDiff label="Bank credits" value={totalBankValue} compare={totalOrdersValue} />
           </div>
+          {onOpenExplorer && (
+            <button
+              onClick={onOpenExplorer}
+              className="sm:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+            >
+              <Database className="w-3.5 h-3.5" />
+              Explore data
+            </button>
+          )}
         </motion.div>
       </div>
     </section>

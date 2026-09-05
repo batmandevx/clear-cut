@@ -1,14 +1,14 @@
 "use client";
 
-import { Scissors, ShieldCheck, Sparkles, Github, ExternalLink } from "lucide-react";
+import { Scissors, ShieldCheck, Sparkles, Keyboard } from "lucide-react";
 
 export function Footer() {
   return (
     <footer className="mt-auto border-t border-border bg-card/40 backdrop-blur-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Brand */}
-          <div>
+          <div className="md:col-span-1">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-8 h-8 rounded-lg glass-strong flex items-center justify-center">
                 <Scissors className="w-4 h-4 text-emerald-400" strokeWidth={2.2} />
@@ -29,8 +29,8 @@ export function Footer() {
             <ul className="text-xs text-muted-foreground space-y-1">
               <li>Next.js 16 App Router · TypeScript</li>
               <li>Prisma + SQLite · Tailwind CSS 4</li>
-              <li>z-ai-web-dev-sdk · Framer Motion · Recharts</li>
-              <li>shadcn/ui · Lucide icons</li>
+              <li>z-ai-web-dev-sdk · Framer Motion</li>
+              <li>Recharts · shadcn/ui · Lucide</li>
             </ul>
           </div>
 
@@ -49,6 +49,36 @@ export function Footer() {
             <p className="text-xs text-muted-foreground leading-relaxed">
               Verification capacity &gt; Generation speed. The AI never guesses financial data.
             </p>
+          </div>
+
+          {/* Keyboard shortcuts */}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
+              <Keyboard className="w-3 h-3" />
+              Shortcuts
+            </div>
+            <ul className="text-xs text-muted-foreground space-y-1.5">
+              <li className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px] font-mono">R</kbd>
+                <span>Run / re-run pipeline</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px] font-mono">D</kbd>
+                <span>Open source data explorer</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px] font-mono">E</kbd>
+                <span>Export report (JSON)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px] font-mono">/</kbd>
+                <span>Focus search field</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 rounded bg-background/60 border border-border text-[10px] font-mono">?</kbd>
+                <span>Toggle keyboard help</span>
+              </li>
+            </ul>
           </div>
         </div>
 

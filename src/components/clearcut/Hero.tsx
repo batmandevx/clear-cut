@@ -63,8 +63,8 @@ export function Hero({ onRun, isRunning }: Props) {
           </motion.div>
 
           <motion.h1
-            initial={{ opacity: 0, y: 20, letterSpacing: "0.5em" }}
-            animate={{ opacity: 1, y: 0, letterSpacing: "normal" }}
+            initial={{ opacity: 0, y: 20, letterSpacing: "0.18em" }}
+            animate={{ opacity: 1, y: 0, letterSpacing: "-0.02em" }}
             transition={{ duration: 0.9, delay: 0.1, ease: [0.34, 1.56, 0.64, 1] }}
             className="text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight mb-4"
           >
